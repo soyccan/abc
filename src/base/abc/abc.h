@@ -32,6 +32,7 @@
 #include <assert.h>
 
 #include "misc/vec/vec.h"
+#include "aig/aig/aig.h"
 #include "aig/hop/hop.h"
 #include "aig/gia/gia.h"
 #include "misc/st/st.h"
@@ -614,6 +615,7 @@ extern ABC_DLL int                Abc_NtkPhaseFrameNum( Abc_Ntk_t * pNtk );
 extern ABC_DLL int                Abc_NtkDarPrintCone( Abc_Ntk_t * pNtk );
 extern ABC_DLL Abc_Ntk_t *        Abc_NtkBalanceExor( Abc_Ntk_t * pNtk, int fUpdateLevel, int fVerbose );
 extern ABC_DLL Abc_Ntk_t *        Abc_NtkDarLatchSweep( Abc_Ntk_t * pNtk, int fLatchConst, int fLatchEqual, int fSaveNames, int fUseMvSweep, int nFramesSymb, int nFramesSatur, int fVerbose, int fVeryVerbose );
+extern ABC_DLL Aig_Man_t *        Abc_NtkToDar( Abc_Ntk_t * pNtk, int fExors, int fRegisters );
 /*=== abcDelay.c ==========================================================*/
 extern ABC_DLL float              Abc_NtkDelayTraceLut( Abc_Ntk_t * pNtk, int fUseLutLib );
 /*=== abcDfs.c ==========================================================*/
@@ -1058,6 +1060,9 @@ extern ABC_DLL int *              Abc_NtkVerifySimulatePattern( Abc_Ntk_t * pNtk
 extern ABC_DLL int                Abc_NtkIsTrueCex( Abc_Ntk_t * pNtk, Abc_Cex_t * pCex );
 extern ABC_DLL int                Abc_NtkIsValidCex( Abc_Ntk_t * pNtk, Abc_Cex_t * pCex );
 
+/*=== abcShow.c ==========================================================*/
+extern ABC_DLL void               Abc_NodeShowBdd( Abc_Obj_t * pNode, int fCompl );
+extern ABC_DLL void               Abc_NtkShowBdd( Abc_Ntk_t * pNtk, int fCompl, int fReorder );
 
 
 ABC_NAMESPACE_HEADER_END

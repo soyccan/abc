@@ -93,6 +93,7 @@ extern void *         Ver_FormulaReduction( char * pFormula, void * pMan, Vec_Pt
 /*=== verParse.c ========================================================*/
 extern int            Ver_ParseSkipComments( Ver_Man_t * p );
 extern char *         Ver_ParseGetName( Ver_Man_t * p );
+extern int            Ver_ParseSkipBlock( Ver_Man_t * pMan, const char* keyword );
 /*=== verStream.c ========================================================*/
 extern Ver_Stream_t * Ver_StreamAlloc( char * pFileName );
 extern void           Ver_StreamFree( Ver_Stream_t * p );

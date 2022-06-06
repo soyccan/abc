@@ -18,6 +18,8 @@
 
 ***********************************************************************/
 
+#include <stdint.h>
+
 #include "ver.h"
 #include "map/mio/mio.h"
 #include "base/main/main.h"
@@ -209,6 +211,7 @@ void Ver_ParseInternal( Ver_Man_t * pMan )
     {
         // get the next token
         pToken = Ver_ParseGetName( pMan );
+        Abc_Print( ABC_VERBOSE, "line=%d token=%s\n", Ver_StreamGetLineNumber(pMan->pReader), pToken );
         if ( pToken == NULL )
             break;
         if ( strcmp( pToken, "module" ) )
@@ -442,6 +445,7 @@ int Ver_ParseModule( Ver_Man_t * pMan )
     {
         Extra_ProgressBarUpdate( pMan->pProgress, Ver_StreamGetCurPosition(p), NULL );
         pWord = Ver_ParseGetName( pMan );
+        Abc_Print( ABC_VERBOSE, "line=%d word=%s\n", Ver_StreamGetLineNumber(pMan->pReader), pWord );
         if ( pWord == NULL )
             return 0;
         if ( !strcmp( pWord, "input" ) )
@@ -499,6 +503,8 @@ int Ver_ParseModule( Ver_Man_t * pMan )
 //            RetValue = Ver_ParseGate( pMan, pNtkTemp );
         else if ( !strcmp( pWord, "wire" ) )
             RetValue = Ver_ParseSignal( pMan, pNtk, VER_SIG_WIRE );
+        else if ( !strcmp( pWord, "specify" ) )
+            RetValue = Ver_ParseSkipBlock( pMan, "specify" );
         else // assume this is the box used in the current design
         {
             pNtkTemp = Ver_ParseFindOrCreateNetwork( pMan, pWord );
@@ -562,7 +568,7 @@ int Ver_ParseModule( Ver_Man_t * pMan )
 ***********************************************************************/
 int Ver_ParseLookupSuffix( Ver_Man_t * pMan, char * pWord, int * pnMsb, int * pnLsb )
 {
-    unsigned Value;
+    uintptr_t Value;
     *pnMsb = *pnLsb = -1;
     if ( pMan->tName2Suffix == NULL )
         return 1;
@@ -586,7 +592,7 @@ int Ver_ParseLookupSuffix( Ver_Man_t * pMan, char * pWord, int * pnMsb, int * pn
 ***********************************************************************/
 int Ver_ParseInsertsSuffix( Ver_Man_t * pMan, char * pWord, int nMsb, int nLsb )
 {
-    unsigned Value;
+    uintptr_t Value;
     if ( pMan->tName2Suffix == NULL )
         pMan->tName2Suffix = st__init_table( strcmp, st__strhash );
     if ( st__is_member( pMan->tName2Suffix, pWord ) )
@@ -1340,6 +1346,7 @@ int Ver_ParseGateStandard( Ver_Man_t * pMan, Abc_Ntk_t * pNtk, Ver_GateType_t Ga
     Ver_StreamMove( p );
 
     // this is gate name - throw it away
+    Ver_StreamSkipToChars( p, "(" );
     if ( Ver_StreamPopChar(p) != '(' )
     {
         sprintf( pMan->sError, "Cannot parse a standard gate (expected opening parenthesis)." );

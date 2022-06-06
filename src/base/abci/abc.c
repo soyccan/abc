@@ -3204,8 +3204,6 @@ int Abc_CommandShowBdd( Abc_Frame_t * pAbc, int argc, char ** argv )
     Abc_Ntk_t * pNtk = Abc_FrameReadNtk(pAbc);
     Abc_Obj_t * pNode;
     int c, fCompl = 0, fGlobal = 0, fReorder = 1;
-    extern void Abc_NodeShowBdd( Abc_Obj_t * pNode, int fCompl );
-    extern void Abc_NtkShowBdd( Abc_Ntk_t * pNtk, int fCompl, int fReorder );
 
     // set defaults
     Extra_UtilGetoptReset();

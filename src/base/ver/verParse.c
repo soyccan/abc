@@ -18,6 +18,8 @@
 
 ***********************************************************************/
 
+#include <string.h>
+
 #include "ver.h"
 
 ABC_NAMESPACE_IMPL_START
@@ -52,6 +54,11 @@ int Ver_ParseSkipComments( Ver_Man_t * pMan )
         return 1;
     // read the first symbol
     Symbol = Ver_StreamScanChar( p );
+    if ( Symbol == '`' )
+    { // directive, skip till the end of line
+        Ver_StreamSkipToChars( p, "\n" );
+        return Ver_ParseSkipComments( pMan );
+    }
     if ( Symbol != '/' )
         return 1;
     Ver_StreamPopChar( p );
@@ -120,6 +127,30 @@ char * Ver_ParseGetName( Ver_Man_t * pMan )
         return NULL;
     return pWord;
 }
+
+// skip block like "specify ... endspecify"
+// keyword: like "specify"
+int Ver_ParseSkipBlock( Ver_Man_t * pMan, const char* keyword )
+{
+    Ver_Stream_t * p = pMan->pReader;
+    size_t n = 3 + strlen(keyword);
+    char * pWord;
+
+    // skip spaces
+    Ver_StreamSkipChars( p, " \t\n\r" );
+    if ( !Ver_StreamIsOkey(pMan->pReader) )
+        return 1;
+
+    do {
+        Ver_StreamSkipChars( p, ",;()*>" );
+        pWord = Ver_ParseGetName( pMan );
+        if ( !pWord )
+            break;
+    } while ( memcmp( pWord, "end", 3 ) || strcmp( pWord+3, keyword ) );
+
+    return 1;
+}
+
 
 
 ////////////////////////////////////////////////////////////////////////
