@@ -115,6 +115,9 @@ static int Abc_CommandRev(Abc_Frame_t *pAbc, int argc, char **argv) {
     // Abc_ObjPrintFaninCone( po );
     Abc_PrintErr(1, "\n");
   }
+  
+  unsigned long addend = ExtractAddend(pNtk);
+  Abc_Print(1, "Extracted addend: %lu\n", addend);
 
   return 0;
 }

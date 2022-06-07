@@ -78,7 +78,8 @@ int Rev_NtkAigBuildBddToPi(Abc_Ntk_t *pNtk) {
   DdManager *dd = Cudd_Init(nPi, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
 
   // set the mapping of AIG primary inputs to the BDD variables
-  Hop_Man_t *pMan = pNtk->pManFunc;
+  // Hop_Man_t *pMan = pNtk->pManFunc;
+  Abc_NtkObj(pNtk, 0)->pData = Cudd_ReadOne(dd);
   for (int i = 0; i < nPi; i++)
     Abc_NtkPi(pNtk, i)->pData = Cudd_bddIthVar(dd, i);
 
@@ -111,8 +112,6 @@ int Rev_NtkAigBuildBddToPi(Abc_Ntk_t *pNtk) {
           "Rev_NtkAigBuildBddToPi: Error while converting AIG into BDD.\n");
       return 0;
     }
-
-    Cudd_Ref(pFunc);
   }
 
   Abc_NtkForEachPo(pNtk, pNode, i) {
@@ -131,6 +130,9 @@ int Rev_NtkAigBuildBddToPi(Abc_Ntk_t *pNtk) {
   // update the network type
   pNtk->ntkFunc = ABC_FUNC_BDD;
   pNtk->ntkType = ABC_NTK_LOGIC;
+
+  ABC_FREE(bddBuilt);
+
   return 1;
 }
 
@@ -180,7 +182,54 @@ void Rev_AigNodeBuildBddToPi(DdManager *dd, int *bddBuilt, Abc_Obj_t *node) {
   } else {
     assert(0);
   }
+  // TODO: correctly reference/dereference
   Cudd_Ref((DdNode *)node->pData);
+}
+
+// for i = 0..n-1
+//   if PO[i] == PI[i] ^ c[i]
+//     res[i] = 0
+//     c[i+1] = PI[i] & c[i]
+//   else if PO[i] == PI[i] ~^ c[i]
+//     res[i] = 1
+//     c[i+1] = PI[i] | c[i]
+unsigned long ExtractAddend(Abc_Ntk_t *ntk) {
+  DdManager *dd = ntk->pManFunc;
+
+  const int MAX_ADDER_SIZE = 64;
+  int arr[MAX_ADDER_SIZE];
+  memset(arr, 0, sizeof(arr));
+  assert(Abc_NtkPiNum(ntk) < MAX_ADDER_SIZE);
+
+  DdNode *carry = Cudd_ReadLogicZero(dd);
+
+  Abc_Obj_t *pi;
+  int i;
+  Abc_NtkForEachPi(ntk, pi, i) {
+    Abc_Obj_t *po = Abc_NtkPo(ntk, i);
+    DdNode *pidd = (DdNode *)pi->pData;
+    DdNode *podd = (DdNode *)po->pData;
+
+    DdNode *tmp = Cudd_bddXor(dd, pidd, carry);
+
+    if (Cudd_bddXnor(dd, podd, tmp) == Cudd_ReadOne(dd)) {
+      arr[i] = 0;
+      carry = Cudd_bddAnd(dd, pidd, carry);
+    } else if (Cudd_bddXnor(dd, podd, Cudd_Not(tmp)) == Cudd_ReadOne(dd)) {
+      arr[i] = 1;
+      carry = Cudd_bddOr(dd, pidd, carry);
+    } else {
+      // invalid constant adder circuit
+      assert(0);
+    }
+  }
+
+  unsigned long ret = 0;
+  for (int i = MAX_ADDER_SIZE - 1; i >= 0; i--) {
+    ret = (ret << 1) | arr[i];
+  }
+
+  return ret;
 }
 
 ////////////////////////////////////////////////////////////////////////

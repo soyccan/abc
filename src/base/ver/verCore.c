@@ -211,7 +211,6 @@ void Ver_ParseInternal( Ver_Man_t * pMan )
     {
         // get the next token
         pToken = Ver_ParseGetName( pMan );
-        Abc_Print( ABC_VERBOSE, "line=%d token=%s\n", Ver_StreamGetLineNumber(pMan->pReader), pToken );
         if ( pToken == NULL )
             break;
         if ( strcmp( pToken, "module" ) )
@@ -445,7 +444,6 @@ int Ver_ParseModule( Ver_Man_t * pMan )
     {
         Extra_ProgressBarUpdate( pMan->pProgress, Ver_StreamGetCurPosition(p), NULL );
         pWord = Ver_ParseGetName( pMan );
-        Abc_Print( ABC_VERBOSE, "line=%d word=%s\n", Ver_StreamGetLineNumber(pMan->pReader), pWord );
         if ( pWord == NULL )
             return 0;
         if ( !strcmp( pWord, "input" ) )

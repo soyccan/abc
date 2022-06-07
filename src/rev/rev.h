@@ -57,6 +57,7 @@ ABC_NAMESPACE_HEADER_START
 void Abc_ObjPrintFaninCone( Abc_Obj_t * pObj );
 int Rev_NtkAigBuildBddToPi(Abc_Ntk_t *pNtk);
 void Rev_AigNodeBuildBddToPi(DdManager *dd, int* bddBuilt, Abc_Obj_t *node);
+unsigned long ExtractAddend(Abc_Ntk_t *ntk);
 
 ////////////////////////////////////////////////////////////////////////
 ///                       END OF FILE                                ///
