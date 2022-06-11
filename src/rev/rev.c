@@ -85,17 +85,13 @@ int Rev_NtkAigBuildBddToPi(Abc_Ntk_t *pNtk) {
   for (int i = 0; i < nPi; i++)
     Abc_NtkPi(pNtk, i)->pData = Cudd_bddIthVar(dd, i);
 
-  // record if bdd of a node is built
-  // TODO: use pNode->fMarkA instead
-  int *bddBuilt = ABC_CALLOC(int, Abc_NtkObjNumMax(pNtk));
-
   // build BDD for each node
   Abc_Obj_t *pNode;
   int i;
   Abc_NtkForEachNode(pNtk, pNode, i) {
-    if (!bddBuilt[pNode->Id]) {
+    if (!pNode->fMarkA) {
       // if bdd is not built
-      Rev_AigNodeBuildBddToPi(dd, bddBuilt, pNode);
+      Rev_AigNodeBuildBddToPi(dd, pNode);
     }
 
     DdNode *pFunc = pNode->pData;
@@ -113,24 +109,7 @@ int Rev_NtkAigBuildBddToPi(Abc_Ntk_t *pNtk) {
         Cudd_NotCond(Abc_ObjFanin0(pNode)->pData, Abc_ObjFaninC0(pNode));
   }
 
-  Cudd_PrintInfo(dd, stdout);
-  /*Reports the number of live nodes in BDDs and ADDs*/
-  printf("DdManager nodes: %ld | ", Cudd_ReadNodeCount(dd));
-  /*Returns the number of BDD variables in existance*/
-  printf("DdManager vars: %d | ", Cudd_ReadSize(dd));
-  /*Reports the number of nodes in the BDD*/
-  // printf("DdNode nodes: %d | ", Cudd_DagSize(dd));
-  /*Returns the number of variables in the BDD*/
-  // printf("DdNode vars: %d | ", Cudd_SupportSize(gbm, dd));
-  /*Returns the number of times reordering has occurred*/
-  printf("DdManager reorderings: %d | ", Cudd_ReadReorderings(dd));
-  /*Returns the memory in use by the manager measured in bytes*/
-  printf("DdManager memory: %lfM |\n\n", Cudd_ReadMemoryInUse(dd) / 1048576.);
-  // Prints to the standard output a DD and its statistics: number of nodes,
-  // number of leaves, number of minterms.
-  // Cudd_PrintDebug(gbm, dd, n, pr);
-
-  // printf( "Reorderings performed = %d.\n", Cudd_ReadReorderings(ddTemp) );
+  Abc_NtkForEachObj(pNtk, pNode, i) pNode->fMarkA = 0;
 
   // replace manager
   // TODO: free the old manager
@@ -142,22 +121,21 @@ int Rev_NtkAigBuildBddToPi(Abc_Ntk_t *pNtk) {
   pNtk->ntkFunc = ABC_FUNC_BDD;
   pNtk->ntkType = ABC_NTK_LOGIC;
 
-  ABC_FREE(bddBuilt);
-
   return 1;
 }
 
-void Rev_AigNodeBuildBddToPi(DdManager *dd, int *bddBuilt, Abc_Obj_t *node) {
+void Rev_AigNodeBuildBddToPi(DdManager *dd, Abc_Obj_t *node) {
 
   // debug("node id=%2d type=%d comp=%d,%d%d built=%d", node->Id, node->Type,
   //       Hop_IsComplement(node->pData), Abc_ObjFaninC0(node),
   //       Abc_ObjFaninC1(node), bddBuilt[node->Id]);
 
-  if (bddBuilt[node->Id])
+  if (node->fMarkA)
     // BDD already built
     return;
 
-  bddBuilt[node->Id] = 1;
+  // record that bdd is built
+  node->fMarkA = 1;
 
   // Hop_Obj_t *hNode = Hop_Regular(node->pData);
   // int comp = Hop_IsComplement(node->pData);
@@ -173,37 +151,48 @@ void Rev_AigNodeBuildBddToPi(DdManager *dd, int *bddBuilt, Abc_Obj_t *node) {
     return;
 
   if (Abc_ObjFaninNum(node) == 2) {
-    Rev_AigNodeBuildBddToPi(dd, bddBuilt, Abc_ObjFanin0(node));
-    Rev_AigNodeBuildBddToPi(dd, bddBuilt, Abc_ObjFanin1(node));
+    Rev_AigNodeBuildBddToPi(dd, Abc_ObjFanin0(node));
+    Rev_AigNodeBuildBddToPi(dd, Abc_ObjFanin1(node));
     node->pData = Cudd_bddAnd(
         dd, Cudd_NotCond(Abc_ObjFanin0(node)->pData, Abc_ObjFaninC0(node)),
         Cudd_NotCond(Abc_ObjFanin1(node)->pData, Abc_ObjFaninC1(node)));
   } else if (Abc_ObjFaninNum(node) == 1) {
-    Rev_AigNodeBuildBddToPi(dd, bddBuilt, Abc_ObjFanin0(node));
+    Rev_AigNodeBuildBddToPi(dd, Abc_ObjFanin0(node));
     node->pData =
         Cudd_NotCond(Abc_ObjFanin0(node)->pData, Abc_ObjFaninC0(node));
   } else {
     assert(0);
   }
   // TODO: correctly reference/dereference
-  Cudd_Ref((DdNode *)node->pData);
+  cuddRef((DdNode *)node->pData);
 }
 
-static int match_sum(DdManager *dd, DdNode *podd, DdNode *pidd, DdNode *carry,
+// determine PO-PI pair by BDD, and derive next carry
+static int match_sum(DdManager *dd, DdNode *po, DdNode *pi, DdNode *carry,
                      DdNode **nxt_carry) {
-
-  DdNode *tmp = Cudd_bddXor(dd, pidd, carry);
-
-  if (Cudd_bddXnor(dd, podd, tmp) == Cudd_ReadOne(dd)) {
-    *nxt_carry = Cudd_bddAnd(dd, pidd, carry);
-    return 0;
-  } else if (Cudd_bddXnor(dd, podd, Cudd_Not(tmp)) == Cudd_ReadOne(dd)) {
-    *nxt_carry = Cudd_bddOr(dd, pidd, carry);
-    return 1;
+  DdNode *tmp = Cudd_bddXor(dd, pi, carry);
+  cuddRef(tmp);
+  DdNode *cond1 = Cudd_bddXnor(dd, po, tmp);
+  cuddRef(cond1);
+  DdNode *cond2 = Cudd_bddXnor(dd, po, Cudd_Not(tmp));
+  cuddRef(cond2);
+  int ret;
+  if (cond1 == Cudd_ReadOne(dd)) {
+    *nxt_carry = Cudd_bddAnd(dd, pi, carry);
+    ret = 0;
+  } else if (cond2 == Cudd_ReadOne(dd)) {
+    *nxt_carry = Cudd_bddOr(dd, pi, carry);
+    ret = 1;
   } else {
     *nxt_carry = NULL;
-    return -1;
+    ret = -1;
   }
+  if (*nxt_carry)
+    cuddRef(*nxt_carry);
+  Cudd_RecursiveDeref(dd, tmp);
+  Cudd_RecursiveDeref(dd, cond1);
+  Cudd_RecursiveDeref(dd, cond2);
+  return ret;
 }
 
 // for i = 0..n-1
@@ -222,6 +211,7 @@ int ExtractAddendBdd(Abc_Ntk_t *ntk, unsigned long *addend) {
 
   DdNode *carry = Cudd_ReadLogicZero(dd);
   for (int i = 0, j, k; i < adder_size; i++) {
+    // pair PO-PIs
     Abc_Obj_t *po = NULL, *pi = NULL;
     Abc_NtkForEachPo(ntk, po, j) {
       if (po->fMarkA)
@@ -230,12 +220,11 @@ int ExtractAddendBdd(Abc_Ntk_t *ntk, unsigned long *addend) {
       Abc_NtkForEachPi(ntk, pi, k) {
         if (pi->fMarkA)
           continue;
-        DdNode *podd = (DdNode *)po->pData;
-        DdNode *pidd = (DdNode *)pi->pData;
         DdNode *nxt_carry = NULL;
-        bit = match_sum(dd, podd, pidd, carry, &nxt_carry);
-        // debug("po %d pi %d match %d", j, k, bit);
+        bit = match_sum(dd, (DdNode *)po->pData, (DdNode *)pi->pData, carry,
+                        &nxt_carry);
         if (bit != -1) {
+          debug("i=%d po=%d pi=%d match %d", i, j, k, bit);
           arr[i] = bit;
           carry = nxt_carry;
           po->fMarkA = 1;
@@ -247,12 +236,24 @@ int ExtractAddendBdd(Abc_Ntk_t *ntk, unsigned long *addend) {
         break;
     }
   }
+  Cudd_RecursiveDeref(dd, carry);
 
+  // # of PO-PI pairs left unpaired
+  int remain = 0;
   {
     int i;
     Abc_Obj_t *node;
-    Abc_NtkForEachPo(ntk, node, i) node->fMarkA = 0;
-    Abc_NtkForEachPi(ntk, node, i) node->fMarkA = 0;
+    Abc_NtkForEachPi(ntk, node, i) {
+      if (!node->fMarkA)
+        remain++;
+      node->fMarkA = 0;
+    }
+    Abc_NtkForEachPo(ntk, node, i) {
+      if (!node->fMarkA)
+        assert(Cudd_Regular((DdNode *)node->pData) ==
+               Cudd_Regular((DdNode *)Abc_ObjFanin0(node)->pData));
+      node->fMarkA = 0;
+    }
   }
 
   for (int j = 0; j < MAX_ADDER_SIZE / 64; j++) {
@@ -260,7 +261,7 @@ int ExtractAddendBdd(Abc_Ntk_t *ntk, unsigned long *addend) {
     for (int i = 64 * (j + 1) - 1; i >= 64 * j; i--) {
       ret = (ret << 1) | arr[i];
     }
-    addend[j] = ret;
+    addend[j] = ret << remain;
   }
 
   return 1;
@@ -288,7 +289,7 @@ int ExtractAddendSat(Abc_Ntk_t *pNtk, unsigned long *addend, int fVerbose) {
 
   // tmp array for adding clause
   // TODO: size?
-  Vec_Int_t *vVars = Vec_IntAlloc(100);
+  // Vec_Int_t *vVars = Vec_IntAlloc(100);
   // assumptions for incremental SAT
   Vec_Int_t *assumps = Vec_IntAlloc(100);
 

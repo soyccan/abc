@@ -89,11 +89,9 @@ static int Abc_CommandRev(Abc_Frame_t *pAbc, int argc, char **argv) {
   if (fVerbose) {
     Abc_NtkShow(pNtk, 0, 0, 0);
 
-    Abc_Obj_t* pObj;
+    Abc_Obj_t *pObj;
     int i;
-    Abc_NtkForEachObj(pNtk, pObj, i) {
-      Abc_ObjPrint(stderr, pObj);
-    }
+    Abc_NtkForEachObj(pNtk, pObj, i) { Abc_ObjPrint(stderr, pObj); }
   }
 
   unsigned long addend[32];
@@ -102,6 +100,8 @@ static int Abc_CommandRev(Abc_Frame_t *pAbc, int argc, char **argv) {
     ret = ExtractAddendSat(pNtk, addend, fVerbose);
   } else { // use BDD
     Rev_NtkAigBuildBddToPi(pNtk);
+
+    ret = ExtractAddendBdd(pNtk, addend);
 
     DdManager *dd = pNtk->pManFunc;
 
@@ -119,8 +119,33 @@ static int Abc_CommandRev(Abc_Frame_t *pAbc, int argc, char **argv) {
       }
       Abc_PrintErr(1, "\n");
     }
-    
-    ret = ExtractAddendBdd(pNtk, addend);
+
+    {
+      int i;
+      Abc_Obj_t *node;
+      Abc_NtkForEachObj(pNtk, node, i) {
+        if (node->pData) {
+          Cudd_RecursiveDeref(dd, node->pData);
+        }
+      }
+    }
+
+    Cudd_PrintInfo(dd, stdout);
+    /*Reports the number of live nodes in BDDs and ADDs*/
+    printf("DdManager nodes: %ld | ", Cudd_ReadNodeCount(dd));
+    /*Returns the number of BDD variables in existance*/
+    printf("DdManager vars: %d | ", Cudd_ReadSize(dd));
+    /*Reports the number of nodes in the BDD*/
+    // printf("DdNode nodes: %d | ", Cudd_DagSize(dd));
+    /*Returns the number of variables in the BDD*/
+    // printf("DdNode vars: %d | ", Cudd_SupportSize(gbm, dd));
+    /*Returns the number of times reordering has occurred*/
+    printf("DdManager reorderings: %d | ", Cudd_ReadReorderings(dd));
+    /*Returns the memory in use by the manager measured in bytes*/
+    printf("DdManager memory: %lfM |\n\n", Cudd_ReadMemoryInUse(dd) / 1048576.);
+    // Prints to the standard output a DD and its statistics: number of nodes,
+    // number of leaves, number of minterms.
+    // Cudd_PrintDebug(gbm, dd, n, pr);
   }
 
   assert(ret);
