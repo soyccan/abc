@@ -1997,7 +1997,7 @@ int sat_solver_solve_internal(sat_solver* s)
 }
 
 // pushing one assumption to the stack of assumptions
-int sat_solver_push(sat_solver* s, int p)
+int sat_solver_push(sat_solver* s, lit p)
 {
     assert(lit_var(p) < s->size);
     veci_push(&s->trail_lim,s->qtail);

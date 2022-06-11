@@ -114,9 +114,9 @@ add_executable(abc ${ABC_MAIN_SRC})
 target_link_libraries(abc PRIVATE libabc)
 abc_properties(abc PRIVATE)
 
-add_executable(socv_abc src/socv.c)
-target_link_libraries(socv_abc PRIVATE libabc)
-abc_properties(socv_abc PRIVATE)
+# add_executable(socv_abc src/socv.c)
+# target_link_libraries(socv_abc PRIVATE libabc)
+# abc_properties(socv_abc PRIVATE)
 
 add_library(libabc-pic EXCLUDE_FROM_ALL ${ABC_SRC})
 abc_properties(libabc-pic PUBLIC)

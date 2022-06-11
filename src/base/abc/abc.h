@@ -1063,6 +1063,7 @@ extern ABC_DLL int                Abc_NtkIsValidCex( Abc_Ntk_t * pNtk, Abc_Cex_t
 /*=== abcShow.c ==========================================================*/
 extern ABC_DLL void               Abc_NodeShowBdd( Abc_Obj_t * pNode, int fCompl );
 extern ABC_DLL void               Abc_NtkShowBdd( Abc_Ntk_t * pNtk, int fCompl, int fReorder );
+extern ABC_DLL void               Abc_NtkShow( Abc_Ntk_t * pNtk0, int fGateNames, int fSeq, int fUseReverse );
 
 
 ABC_NAMESPACE_HEADER_END

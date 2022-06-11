@@ -18,6 +18,8 @@
 
 ***********************************************************************/
 
+#include "abcSat.h"
+
 #include "base/abc/abc.h"
 #include "base/main/main.h"
 #include "base/cmd/cmd.h"
@@ -180,7 +182,7 @@ Vec_Int_t * Abc_NtkGetCiSatVarNums( Abc_Ntk_t * pNtk )
 ***********************************************************************/
 int Abc_NtkClauseTriv( sat_solver * pSat, Abc_Obj_t * pNode, Vec_Int_t * vVars )
 {
-//printf( "Adding triv %d.         %d\n", Abc_ObjRegular(pNode)->Id, (int)pSat->sat_solver_stats.clauses );
+printf( "Adding triv %d.         %d\n", Abc_ObjRegular(pNode)->Id, (int)pSat->stats.clauses );
     vVars->nSize = 0;
     Vec_IntPush( vVars, toLitCond( (int)(ABC_PTRINT_T)Abc_ObjRegular(pNode)->pCopy, Abc_ObjIsComplement(pNode) ) );
 //    Vec_IntPush( vVars, toLitCond( (int)Abc_ObjRegular(pNode)->Id, Abc_ObjIsComplement(pNode) ) );
@@ -202,12 +204,20 @@ int Abc_NtkClauseTop( sat_solver * pSat, Vec_Ptr_t * vNodes, Vec_Int_t * vVars )
 {
     Abc_Obj_t * pNode;
     int i;
-//printf( "Adding triv %d.         %d\n", Abc_ObjRegular(pNode)->Id, (int)pSat->sat_solver_stats.clauses );
     vVars->nSize = 0;
-    Vec_PtrForEachEntry( Abc_Obj_t *, vNodes, pNode, i )
-        Vec_IntPush( vVars, toLitCond( (int)(ABC_PTRINT_T)Abc_ObjRegular(pNode)->pCopy, Abc_ObjIsComplement(pNode) ) );
+    Vec_PtrForEachEntry( Abc_Obj_t *, vNodes, pNode, i ) {
+        printf( "Adding top %d.         %d\n", Abc_ObjRegular(pNode)->Id, (int)pSat->stats.clauses );
+        // Vec_IntPush( vVars, toLitCond( (int)(ABC_PTRINT_T)Abc_ObjRegular(pNode)->pCopy, Abc_ObjIsComplement(pNode) ) );
+        if (!sat_solver_add_buffer(
+                pSat, 
+                (int)(ABC_PTRINT_T)pNode->pCopy, 
+                (int)(ABC_PTRINT_T)Abc_ObjFanin0(pNode)->pCopy, 
+                Abc_ObjFaninC0(pNode)))
+            return 0;
+    }
 //    Vec_IntPush( vVars, toLitCond( (int)Abc_ObjRegular(pNode)->Id, Abc_ObjIsComplement(pNode) ) );
-    return sat_solver_addclause( pSat, vVars->pArray, vVars->pArray + vVars->nSize );
+    // return sat_solver_addclause( pSat, vVars->pArray, vVars->pArray + vVars->nSize );
+    return 1;
 }
  
 /**Function*************************************************************
@@ -224,7 +234,7 @@ int Abc_NtkClauseTop( sat_solver * pSat, Vec_Ptr_t * vNodes, Vec_Int_t * vVars )
 int Abc_NtkClauseAnd( sat_solver * pSat, Abc_Obj_t * pNode, Vec_Ptr_t * vSuper, Vec_Int_t * vVars )
 {
     int fComp1, Var, Var1, i;
-//printf( "Adding AND %d.  (%d)    %d\n", pNode->Id, vSuper->nSize+1, (int)pSat->sat_solver_stats.clauses );
+printf( "Adding AND %d.  (%d)    %d\n", pNode->Id, vSuper->nSize+1, (int)pSat->stats.clauses );
 
     assert( !Abc_ObjIsComplement( pNode ) );
     assert( Abc_ObjIsNode( pNode ) );
@@ -288,7 +298,7 @@ int Abc_NtkClauseAnd( sat_solver * pSat, Abc_Obj_t * pNode, Vec_Ptr_t * vSuper, 
 int Abc_NtkClauseMux( sat_solver * pSat, Abc_Obj_t * pNode, Abc_Obj_t * pNodeC, Abc_Obj_t * pNodeT, Abc_Obj_t * pNodeE, Vec_Int_t * vVars )
 {
     int VarF, VarI, VarT, VarE, fCompT, fCompE;
-//printf( "Adding mux %d.         %d\n", pNode->Id, (int)pSat->sat_solver_stats.clauses );
+printf( "Adding mux %d.         %d\n", pNode->Id, (int)pSat->stats.clauses );
 
     assert( !Abc_ObjIsComplement( pNode ) );
     assert( Abc_NodeIsMuxType( pNode ) );
@@ -489,7 +499,7 @@ int Abc_NtkMiterSatCreateInt( sat_solver * pSat, Abc_Ntk_t * pNtk )
     // add the clause for the constant node
     pNode = Abc_AigConst1(pNtk);
     pNode->fMarkA = 1;
-    pNode->pCopy = (Abc_Obj_t *)(ABC_PTRINT_T)vNodes->nSize;
+    pNode->pCopy = (Abc_Obj_t *)(ABC_PTRINT_T)pNode->Id;
     Vec_PtrPush( vNodes, pNode );
     Abc_NtkClauseTriv( pSat, pNode, vVars );
 /*
@@ -505,17 +515,18 @@ int Abc_NtkMiterSatCreateInt( sat_solver * pSat, Abc_Ntk_t * pNtk )
     Vec_PtrClear( vSuper );
     Abc_NtkForEachCo( pNtk, pNode, i )
     {
+        pNode->pCopy = pNode->Id;
         // get the fanin
         pFanin = Abc_ObjFanin0(pNode);
         // create the node's variable
         if ( pFanin->fMarkA == 0 )
         {
             pFanin->fMarkA = 1;
-            pFanin->pCopy = (Abc_Obj_t *)(ABC_PTRINT_T)vNodes->nSize;
+            pFanin->pCopy = (Abc_Obj_t *)(ABC_PTRINT_T)pFanin->Id;
             Vec_PtrPush( vNodes, pFanin );
         }
         // add the trivial clause
-        Vec_PtrPush( vSuper, Abc_ObjChild0(pNode) );
+        Vec_PtrPush( vSuper, pNode );
     }
     if ( !Abc_NtkClauseTop( pSat, vSuper, vVars ) )
         goto Quits;
@@ -546,7 +557,7 @@ int Abc_NtkMiterSatCreateInt( sat_solver * pSat, Abc_Ntk_t * pNtk )
                 if ( pFanin->fMarkA == 0 )
                 {
                     pFanin->fMarkA = 1;
-                    pFanin->pCopy = (Abc_Obj_t *)(ABC_PTRINT_T)vNodes->nSize;
+                    pFanin->pCopy = (Abc_Obj_t *)(ABC_PTRINT_T)pFanin->Id;
                     Vec_PtrPush( vNodes, pFanin );
                 }
             }
@@ -565,7 +576,7 @@ int Abc_NtkMiterSatCreateInt( sat_solver * pSat, Abc_Ntk_t * pNtk )
                 if ( pFanin->fMarkA == 0 )
                 {
                     pFanin->fMarkA = 1;
-                    pFanin->pCopy = (Abc_Obj_t *)(ABC_PTRINT_T)vNodes->nSize;
+                    pFanin->pCopy = (Abc_Obj_t *)(ABC_PTRINT_T)pFanin->Id;
                     Vec_PtrPush( vNodes, pFanin );
                 }
             }

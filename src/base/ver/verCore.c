@@ -23,6 +23,7 @@
 #include "ver.h"
 #include "map/mio/mio.h"
 #include "base/main/main.h"
+#include "misc/util/abc_global.h"
 
 ABC_NAMESPACE_IMPL_START
 
@@ -572,8 +573,8 @@ int Ver_ParseLookupSuffix( Ver_Man_t * pMan, char * pWord, int * pnMsb, int * pn
         return 1;
     if ( ! st__lookup( pMan->tName2Suffix, (char *)pWord, (char **)&Value ) )
         return 1;
-    *pnMsb = (Value >> 8) & 0xff;
-    *pnLsb = Value & 0xff;
+    *pnMsb = (Value >> 16) & 0xffff;
+    *pnLsb = Value & 0xffff;
     return 1;
 }
 
@@ -595,9 +596,10 @@ int Ver_ParseInsertsSuffix( Ver_Man_t * pMan, char * pWord, int nMsb, int nLsb )
         pMan->tName2Suffix = st__init_table( strcmp, st__strhash );
     if ( st__is_member( pMan->tName2Suffix, pWord ) )
         return 1;
-    assert( nMsb >= 0 && nMsb < 128 );
-    assert( nLsb >= 0 && nLsb < 128 );
-    Value = (nMsb << 8) | nLsb;
+    assert( nMsb >= 0 && nMsb < 32768 );
+    assert( nLsb >= 0 && nLsb < 32768 );
+    assert(sizeof(ABC_PTRUINT_T) == 8);
+    Value = (nMsb << 16) | nLsb;
     st__insert( pMan->tName2Suffix, Extra_UtilStrsav(pWord), (char *)(ABC_PTRUINT_T)Value );
     return 1;
 }

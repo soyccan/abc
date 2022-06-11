@@ -1623,7 +1623,11 @@ void Abc_ObjPrint( FILE * pFile, Abc_Obj_t * pObj )
     // print the fanins
     fprintf( pFile, " Fanins ( " );
     Abc_ObjForEachFanin( pObj, pFanin, i )
-        fprintf( pFile, "%d ", pFanin->Id );
+        fprintf( pFile, "%s%d ", 
+                i == 0 && Abc_ObjFaninC0(pObj)
+                    || i == 1 && Abc_ObjFaninC1(pObj) ?
+                "!" : "",
+                 pFanin->Id );
     fprintf( pFile, ") " );
 /*
     fprintf( pFile, " Fanouts ( " );

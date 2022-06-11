@@ -26,9 +26,12 @@
 #include "rev.h"
 
 #include "aig/aig/aig.h"
+#include "base/abci/abcSat.h"
 #include "base/main/mainInt.h"
 #include "bdd/bbr/bbr.h"
 #include "bdd/cudd/cuddInt.h"
+#include "misc/util/abc_global.h"
+#include "misc/vec/vecInt.h"
 
 ABC_NAMESPACE_IMPL_START
 
@@ -53,73 +56,104 @@ ABC_NAMESPACE_IMPL_START
 ***********************************************************************/
 static int Abc_CommandRev(Abc_Frame_t *pAbc, int argc, char **argv) {
   Abc_Ntk_t *pNtk = Abc_FrameReadNtk(pAbc);
-  assert(pNtk);
+
+  if (pNtk == NULL) {
+    Abc_Print(-1, "Empty network.\n");
+    return 1;
+  }
 
   if (!Abc_NtkIsStrash(pNtk)) {
     Abc_PrintErr(ABC_ERROR, "Network is not strash\n");
     return 1;
   }
 
-  Aig_Man_t *pAig = Abc_NtkToDar(pNtk, 0, 1);
-  Aig_ManShow(pAig, 0, NULL);
-
-  // if (!Abc_NtkHasBdd(pNtk)) {
-  //     // check if Abc_NtkAigToBdd was called
-  //     Abc_PrintErr(ABC_ERROR, "Network is not BDD\n");
-  //     return 1;
-  // }
-
-  Rev_NtkAigBuildBddToPi(pNtk);
-
-  DdManager *dd = pNtk->pManFunc;
-  // int arr[dd->size];
-
-  // DdNode** node2func = ABC_ALLOC(DdNode*, Abc_NtkObjNumMax(pNtk));
-
-  int i;
-  Abc_Obj_t *po;
-  Abc_NtkForEachPo(pNtk, po, i) {
-    Abc_ObjPrint(stderr, po);
-
-    debug("po id=%d comp=%d", Abc_ObjFanin0(po)->Id, Abc_ObjFaninC0(po));
-
-    // Abc_Obj_t *node = Abc_ObjFanin0(po);
-    // assert(!Abc_ObjIsBarBuf(node));
-    // Abc_ObjPrint(stderr, node);
-
-    DdNode *pFunc = po->pData;
-    // DdNode* pFunc = Rev_BuildBddToPi(dd, node2func, pPo);
-
-    // int nMints = 1;
-    // DdNode** pbMints = Cudd_bddPickArbitraryMinterms(
-    //     dd, pFunc, dd->vars, dd->size, nMints);
-
-    // for (int k = 0; k < nMints; k++) {
-    DdGen *gen;
-    int *cube;
-    CUDD_VALUE_TYPE value;
-    Cudd_ForeachCube(dd, pFunc, gen, cube, value) {
-      // Cudd_BddToCubeArray(dd, pbMints[k], arr);
-
-      // for ( i = 0; i < Abc_NtkCiNum(pNtk); i++ )
-      for (int i = 0; i < dd->size; i++)
-        fprintf(stdout, "%c", cube[i] == 0 ? '0' : cube[i] == 1 ? '1' : '-');
-
-      fprintf(stdout, "\n");
+  // set defaults
+  int fVerbose = 0, fSat = 0;
+  int c;
+  Extra_UtilGetoptReset();
+  while ((c = Extra_UtilGetopt(argc, argv, "svh")) != EOF) {
+    switch (c) {
+    case 's':
+      fSat ^= 1;
+      break;
+    case 'v':
+      fVerbose ^= 1;
+      break;
+    case 'h':
+      goto usage;
+    default:
+      goto usage;
     }
-
-    Abc_NodeShowBdd(po, 0);
-
-    // Abc_ObjPrint( stderr, Abc_ObjFanin0(po) );
-    // Abc_ObjPrint( stderr, Abc_ObjFanin0(Abc_ObjFanin0( po)) );
-    // Abc_ObjPrintFaninCone( po );
-    Abc_PrintErr(1, "\n");
   }
-  
-  unsigned long addend = ExtractAddend(pNtk);
-  Abc_Print(1, "Extracted addend: %lu\n", addend);
+
+  if (fVerbose) {
+    Abc_NtkShow(pNtk, 0, 0, 0);
+
+    Abc_Obj_t* pObj;
+    int i;
+    Abc_NtkForEachObj(pNtk, pObj, i) {
+      Abc_ObjPrint(stderr, pObj);
+    }
+  }
+
+  unsigned long addend[32];
+  int ret;
+  if (fSat) { // use SAT
+    ret = ExtractAddendSat(pNtk, addend);
+  } else { // use BDD
+    Rev_NtkAigBuildBddToPi(pNtk);
+
+    DdManager *dd = pNtk->pManFunc;
+
+    if (fVerbose) {
+      int i;
+      Abc_Obj_t *po;
+      Abc_NtkForEachPo(pNtk, po, i) {
+        Abc_ObjPrint(stderr, po);
+
+        debug("po id=%d comp=%d", Abc_ObjFanin0(po)->Id, Abc_ObjFaninC0(po));
+
+        DdNode *pFunc = po->pData;
+
+        DdGen *gen;
+        int *cube;
+        CUDD_VALUE_TYPE value;
+        Cudd_ForeachCube(dd, pFunc, gen, cube, value) {
+          for (int i = 0; i < dd->size; i++)
+            fprintf(stdout, "%c",
+                    cube[i] == 0   ? '0'
+                    : cube[i] == 1 ? '1'
+                                   : '-');
+
+          fprintf(stdout, "\n");
+        }
+
+        Abc_NodeShowBdd(po, 0);
+      }
+      Abc_PrintErr(1, "\n");
+    }
+    
+    ret = ExtractAddendBdd(pNtk, addend);
+  }
+
+  assert(ret);
+  Abc_Print(1, "Extracted addend: (%lu) ", addend[0]);
+  for (int i = 0; i < 32; i++) {
+    Abc_Print(1, "%lx ", addend[i]);
+  }
+  Abc_Print(1, "\n");
 
   return 0;
+
+usage:
+  Abc_Print(-2, "usage: rev [-svh]\n");
+  Abc_Print(-2, "\t         extract addend\n");
+  Abc_Print(-2, "\t-s     : extract using SAT (default BDD) [default = %s]\n",
+            fSat ? "yes" : "no");
+  Abc_Print(-2, "\t-v     : print BDD of each PO [default = %s]\n",
+            fVerbose ? "yes" : "no");
+  Abc_Print(-2, "\t-h     : print the command usage\n");
+  return 1;
 }
 
 void Rev_Init(Abc_Frame_t *pAbc) {

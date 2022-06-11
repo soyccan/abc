@@ -104,7 +104,11 @@ void Abc_NodeShowBdd( Abc_Obj_t * pNode, int fCompl )
     }
 
     // set the node names 
-    vNamesIn = Abc_NodeGetFaninNames( pNode );
+    Abc_Obj_t * pPi;
+    int i;
+    vNamesIn = Vec_PtrAlloc( 100 );
+    Abc_NtkForEachPi( pNode->pNtk, pPi, i )
+        Vec_PtrPush( vNamesIn, Abc_UtilStrsav(Abc_ObjName(pPi)) );
     pNameOut = Abc_ObjName(pNode);
     if ( fCompl )
         Cudd_DumpDot( dd, 1, (DdNode **)&pNode->pData, (char **)vNamesIn->pArray, &pNameOut, pFile );
@@ -385,6 +389,7 @@ void Abc_ShowFile( char * FileNameDot )
         pGsNameUnix = Abc_FrameReadFlag("gsviewunix");
 
     // spawn the viewer
+    return;
 #ifdef WIN32
     _unlink( FileNameDot );
     if ( _spawnl( _P_NOWAIT, pGsNameWin, pGsNameWin, FileNamePs, NULL ) == -1 )
