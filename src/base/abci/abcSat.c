@@ -182,7 +182,7 @@ Vec_Int_t * Abc_NtkGetCiSatVarNums( Abc_Ntk_t * pNtk )
 ***********************************************************************/
 int Abc_NtkClauseTriv( sat_solver * pSat, Abc_Obj_t * pNode, Vec_Int_t * vVars )
 {
-printf( "Adding triv %d.         %d\n", Abc_ObjRegular(pNode)->Id, (int)pSat->stats.clauses );
+// printf( "Adding triv %d.         %d\n", Abc_ObjRegular(pNode)->Id, (int)pSat->stats.clauses );
     vVars->nSize = 0;
     Vec_IntPush( vVars, toLitCond( (int)(ABC_PTRINT_T)Abc_ObjRegular(pNode)->pCopy, Abc_ObjIsComplement(pNode) ) );
 //    Vec_IntPush( vVars, toLitCond( (int)Abc_ObjRegular(pNode)->Id, Abc_ObjIsComplement(pNode) ) );
@@ -206,7 +206,7 @@ int Abc_NtkClauseTop( sat_solver * pSat, Vec_Ptr_t * vNodes, Vec_Int_t * vVars )
     int i;
     vVars->nSize = 0;
     Vec_PtrForEachEntry( Abc_Obj_t *, vNodes, pNode, i ) {
-        printf( "Adding top %d.         %d\n", Abc_ObjRegular(pNode)->Id, (int)pSat->stats.clauses );
+        // printf( "Adding top %d.         %d\n", Abc_ObjRegular(pNode)->Id, (int)pSat->stats.clauses );
         // Vec_IntPush( vVars, toLitCond( (int)(ABC_PTRINT_T)Abc_ObjRegular(pNode)->pCopy, Abc_ObjIsComplement(pNode) ) );
         if (!sat_solver_add_buffer(
                 pSat, 
@@ -234,7 +234,7 @@ int Abc_NtkClauseTop( sat_solver * pSat, Vec_Ptr_t * vNodes, Vec_Int_t * vVars )
 int Abc_NtkClauseAnd( sat_solver * pSat, Abc_Obj_t * pNode, Vec_Ptr_t * vSuper, Vec_Int_t * vVars )
 {
     int fComp1, Var, Var1, i;
-printf( "Adding AND %d.  (%d)    %d\n", pNode->Id, vSuper->nSize+1, (int)pSat->stats.clauses );
+// printf( "Adding AND %d.  (%d)    %d\n", pNode->Id, vSuper->nSize+1, (int)pSat->stats.clauses );
 
     assert( !Abc_ObjIsComplement( pNode ) );
     assert( Abc_ObjIsNode( pNode ) );
@@ -298,7 +298,7 @@ printf( "Adding AND %d.  (%d)    %d\n", pNode->Id, vSuper->nSize+1, (int)pSat->s
 int Abc_NtkClauseMux( sat_solver * pSat, Abc_Obj_t * pNode, Abc_Obj_t * pNodeC, Abc_Obj_t * pNodeT, Abc_Obj_t * pNodeE, Vec_Int_t * vVars )
 {
     int VarF, VarI, VarT, VarE, fCompT, fCompE;
-printf( "Adding mux %d.         %d\n", pNode->Id, (int)pSat->stats.clauses );
+// printf( "Adding mux %d.         %d\n", pNode->Id, (int)pSat->stats.clauses );
 
     assert( !Abc_ObjIsComplement( pNode ) );
     assert( Abc_NodeIsMuxType( pNode ) );

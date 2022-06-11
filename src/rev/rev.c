@@ -92,16 +92,7 @@ int Rev_NtkAigBuildBddToPi(Abc_Ntk_t *pNtk) {
   // build BDD for each node
   Abc_Obj_t *pNode;
   int i;
-  // Abc_NtkForEachObj(pNtk, pNode, i) {
   Abc_NtkForEachNode(pNtk, pNode, i) {
-    // Abc_NtkForEachPo(pNtk, pNode, i) {
-    // if (Abc_ObjIsPo(pNode))
-    //   pNode = Abc_ObjFanin0(pNode);
-
-    // Hop_Obj_t *hNode = Hop_Regular(pNode->pData);
-    // int comp = Hop_IsComplement(pNode->pData);
-    // assert(hNode);
-
     if (!bddBuilt[pNode->Id]) {
       // if bdd is not built
       Rev_AigNodeBuildBddToPi(dd, bddBuilt, pNode);
@@ -181,14 +172,6 @@ void Rev_AigNodeBuildBddToPi(DdManager *dd, int *bddBuilt, Abc_Obj_t *node) {
   if (!Abc_ObjIsNode(node))
     return;
 
-  // DdNode *func = node->pData;
-
-  // if (Abc_ObjIsPi(node)) {
-  //   return;
-  // }
-
-  // DdNode *fi0_func = DD_ONE(dd), *fi1_func = DD_ONE(dd);
-
   if (Abc_ObjFaninNum(node) == 2) {
     Rev_AigNodeBuildBddToPi(dd, bddBuilt, Abc_ObjFanin0(node));
     Rev_AigNodeBuildBddToPi(dd, bddBuilt, Abc_ObjFanin1(node));
@@ -206,6 +189,23 @@ void Rev_AigNodeBuildBddToPi(DdManager *dd, int *bddBuilt, Abc_Obj_t *node) {
   Cudd_Ref((DdNode *)node->pData);
 }
 
+static int match_sum(DdManager *dd, DdNode *podd, DdNode *pidd, DdNode *carry,
+                     DdNode **nxt_carry) {
+
+  DdNode *tmp = Cudd_bddXor(dd, pidd, carry);
+
+  if (Cudd_bddXnor(dd, podd, tmp) == Cudd_ReadOne(dd)) {
+    *nxt_carry = Cudd_bddAnd(dd, pidd, carry);
+    return 0;
+  } else if (Cudd_bddXnor(dd, podd, Cudd_Not(tmp)) == Cudd_ReadOne(dd)) {
+    *nxt_carry = Cudd_bddOr(dd, pidd, carry);
+    return 1;
+  } else {
+    *nxt_carry = NULL;
+    return -1;
+  }
+}
+
 // for i = 0..n-1
 //   if PO[i] == PI[i] ^ c[i]
 //     res[i] = 0
@@ -216,31 +216,43 @@ void Rev_AigNodeBuildBddToPi(DdManager *dd, int *bddBuilt, Abc_Obj_t *node) {
 int ExtractAddendBdd(Abc_Ntk_t *ntk, unsigned long *addend) {
   DdManager *dd = ntk->pManFunc;
 
+  int adder_size = Abc_NtkPiNum(ntk);
   int arr[MAX_ADDER_SIZE] = {0};
-  assert(Abc_NtkPiNum(ntk) <= MAX_ADDER_SIZE);
+  assert(adder_size <= MAX_ADDER_SIZE);
 
   DdNode *carry = Cudd_ReadLogicZero(dd);
-
-  Abc_Obj_t *pi;
-  int i;
-  Abc_NtkForEachPi(ntk, pi, i) {
-    Abc_Obj_t *po = Abc_NtkPo(ntk, i);
-    DdNode *pidd = (DdNode *)pi->pData;
-    DdNode *podd = (DdNode *)po->pData;
-
-    DdNode *tmp = Cudd_bddXor(dd, pidd, carry);
-
-    if (Cudd_bddXnor(dd, podd, tmp) == Cudd_ReadOne(dd)) {
-      arr[i] = 0;
-      carry = Cudd_bddAnd(dd, pidd, carry);
-    } else if (Cudd_bddXnor(dd, podd, Cudd_Not(tmp)) == Cudd_ReadOne(dd)) {
-      arr[i] = 1;
-      carry = Cudd_bddOr(dd, pidd, carry);
-    } else {
-      // invalid constant adder circuit
-      assert(0);
-      return 0;
+  for (int i = 0, j, k; i < adder_size; i++) {
+    Abc_Obj_t *po = NULL, *pi = NULL;
+    Abc_NtkForEachPo(ntk, po, j) {
+      if (po->fMarkA)
+        continue;
+      int bit = -1;
+      Abc_NtkForEachPi(ntk, pi, k) {
+        if (pi->fMarkA)
+          continue;
+        DdNode *podd = (DdNode *)po->pData;
+        DdNode *pidd = (DdNode *)pi->pData;
+        DdNode *nxt_carry = NULL;
+        bit = match_sum(dd, podd, pidd, carry, &nxt_carry);
+        // debug("po %d pi %d match %d", j, k, bit);
+        if (bit != -1) {
+          arr[i] = bit;
+          carry = nxt_carry;
+          po->fMarkA = 1;
+          pi->fMarkA = 1;
+          break;
+        }
+      }
+      if (bit != -1)
+        break;
     }
+  }
+
+  {
+    int i;
+    Abc_Obj_t *node;
+    Abc_NtkForEachPo(ntk, node, i) node->fMarkA = 0;
+    Abc_NtkForEachPi(ntk, node, i) node->fMarkA = 0;
   }
 
   for (int j = 0; j < MAX_ADDER_SIZE / 64; j++) {
@@ -255,18 +267,20 @@ int ExtractAddendBdd(Abc_Ntk_t *ntk, unsigned long *addend) {
 }
 
 // ref: abcSat.c: Abc_NtkMiterSat
-int ExtractAddendSat(Abc_Ntk_t *pNtk, unsigned long *addend) {
+int ExtractAddendSat(Abc_Ntk_t *pNtk, unsigned long *addend, int fVerbose) {
   int ret;
 
   sat_solver *pSat = sat_solver_new();
   assert(pSat);
-  pSat->fVerbose = 1;
-  pSat->verbosity = 1;
-  pSat->fPrintClause = 1;
+  if (fVerbose) {
+    pSat->fVerbose = 1;
+    pSat->verbosity = 1;
+    pSat->fPrintClause = 1;
+  }
 
   ret = Abc_NtkMiterSatCreateInt(pSat, pNtk);
   assert(ret);
-  debug("solver #var=%d", sat_solver_nvars(pSat));
+  // debug("solver #var=%d", sat_solver_nvars(pSat));
 
   Abc_Obj_t *pNode;
   int i;
@@ -315,7 +329,7 @@ int ExtractAddendSat(Abc_Ntk_t *pNtk, unsigned long *addend) {
     sat_solver_add_xor(pSat, tmpVar2, tmpVar, poVar, 0);
 
     // sat_solver_add_const(pSat, tmpVar2, 0);
-    printf("#clause=%d\n", sat_solver_nclauses(pSat));
+    // printf("#clause=%d\n", sat_solver_nclauses(pSat));
 
     int sat_cnt = 0;
     for (int neg = 0; neg <= 1; neg++) {
@@ -346,7 +360,6 @@ int ExtractAddendSat(Abc_Ntk_t *pNtk, unsigned long *addend) {
         sat_cnt++;
       } else if (status == l_False) {
         // UNSAT
-        debug("UNSAT");
         if (!neg) {
           // PO[i] == PI[i] ^ carry[i]
           // carry[i+1] = PI[i] & carry[i]
@@ -365,8 +378,10 @@ int ExtractAddendSat(Abc_Ntk_t *pNtk, unsigned long *addend) {
       } else {
         assert(0);
       }
-      ABC_PRT("solver time", Abc_Clock() - clk);
-      printf("The number of conflicts = %d.\n", (int)pSat->stats.conflicts);
+      if (fVerbose) {
+        ABC_PRT("solver time", Abc_Clock() - clk);
+        printf("The number of conflicts = %d.\n", (int)pSat->stats.conflicts);
+      }
 
       if (sat_cnt >= 2) {
         // invalid constant adder circuit

@@ -99,7 +99,7 @@ static int Abc_CommandRev(Abc_Frame_t *pAbc, int argc, char **argv) {
   unsigned long addend[32];
   int ret;
   if (fSat) { // use SAT
-    ret = ExtractAddendSat(pNtk, addend);
+    ret = ExtractAddendSat(pNtk, addend, fVerbose);
   } else { // use BDD
     Rev_NtkAigBuildBddToPi(pNtk);
 
@@ -114,20 +114,7 @@ static int Abc_CommandRev(Abc_Frame_t *pAbc, int argc, char **argv) {
         debug("po id=%d comp=%d", Abc_ObjFanin0(po)->Id, Abc_ObjFaninC0(po));
 
         DdNode *pFunc = po->pData;
-
-        DdGen *gen;
-        int *cube;
-        CUDD_VALUE_TYPE value;
-        Cudd_ForeachCube(dd, pFunc, gen, cube, value) {
-          for (int i = 0; i < dd->size; i++)
-            fprintf(stdout, "%c",
-                    cube[i] == 0   ? '0'
-                    : cube[i] == 1 ? '1'
-                                   : '-');
-
-          fprintf(stdout, "\n");
-        }
-
+        printBddCubes(dd, pFunc);
         Abc_NodeShowBdd(po, 0);
       }
       Abc_PrintErr(1, "\n");
