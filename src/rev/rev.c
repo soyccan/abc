@@ -262,11 +262,12 @@ static int pairPoPiSat(sat_solver *pSat, Vec_Int_t *assumps, int po, int pi,
 //   else if PO[i] == PI[i] ~^ c[i]
 //     res[i] = 1
 //     c[i+1] = PI[i] | c[i]
-int ExtractAddendBdd(Abc_Ntk_t *ntk, unsigned long *addend) {
+int Rev_ExtractAddendBdd(Abc_Ntk_t *ntk, unsigned long *addend) {
   DdManager *dd = ntk->pManFunc;
 
   int adder_size = Abc_NtkPiNum(ntk);
-  int arr[MAX_ADDER_SIZE] = {0};
+  int arr[MAX_ADDER_SIZE];
+  memset(arr, -1, sizeof(arr));
   if (adder_size > MAX_ADDER_SIZE) {
     Abc_PrintErr(ABC_ERROR, "Adder size too large\n");
     return 0;
@@ -322,7 +323,7 @@ int ExtractAddendBdd(Abc_Ntk_t *ntk, unsigned long *addend) {
   for (int j = 0; j < MAX_ADDER_SIZE / 64; j++) {
     unsigned long ret = 0;
     for (int i = 64 * (j + 1) - 1; i >= 64 * j; i--) {
-      ret = (ret << 1) | (i >= remain ? arr[i - remain] : 0);
+      ret = (ret << 1) | (i < adder_size && i >= remain ? arr[i - remain] : 0);
     }
     addend[j] = ret;
   }
@@ -331,7 +332,7 @@ int ExtractAddendBdd(Abc_Ntk_t *ntk, unsigned long *addend) {
 }
 
 // ref: abcSat.c: Abc_NtkMiterSat
-int ExtractAddendSat(Abc_Ntk_t *pNtk, unsigned long *addend, int fVerbose) {
+int Rev_ExtractAddendSat(Abc_Ntk_t *pNtk, unsigned long *addend, int fVerbose) {
   int ret;
 
   sat_solver *pSat = sat_solver_new();
@@ -352,7 +353,8 @@ int ExtractAddendSat(Abc_Ntk_t *pNtk, unsigned long *addend, int fVerbose) {
     Abc_NtkForEachObj(pNtk, pNode, i) pNode->fMarkA = 0;
   }
 
-  int addend_vec[MAX_ADDER_SIZE] = {0};
+  int addend_vec[MAX_ADDER_SIZE];
+  memset(addend_vec, -1, sizeof(addend_vec));
   int adder_size = Abc_NtkPiNum(pNtk);
   if (adder_size > MAX_ADDER_SIZE) {
     Abc_PrintErr(ABC_ERROR, "Adder size too large\n");
@@ -426,7 +428,8 @@ int ExtractAddendSat(Abc_Ntk_t *pNtk, unsigned long *addend, int fVerbose) {
   for (int j = 0; j < MAX_ADDER_SIZE / 64; j++) {
     unsigned long ret = 0;
     for (int i = 64 * (j + 1) - 1; i >= 64 * j; i--) {
-      ret = (ret << 1) | (i >= remain ? addend_vec[i - remain] : 0);
+      ret = (ret << 1) |
+            (i < adder_size && i >= remain ? addend_vec[i - remain] : 0);
     }
     addend[j] = ret;
   }
@@ -437,6 +440,11 @@ int ExtractAddendSat(Abc_Ntk_t *pNtk, unsigned long *addend, int fVerbose) {
 error:
   sat_solver_delete(pSat);
   return 0;
+}
+
+Abc_Obj_t *Abc_NodeRecognizeExor(Abc_Obj_t *pNode, Abc_Obj_t **ppNodeT,
+                                Abc_Obj_t **ppNodeE) {
+  ;
 }
 
 ////////////////////////////////////////////////////////////////////////

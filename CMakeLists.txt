@@ -1,5 +1,7 @@
 cmake_minimum_required(VERSION 3.3.0)
 
+SET(CMAKE_C_STANDARD 11)
+
 include(CMakeParseArguments)
 include(CheckCCompilerFlag)
 include(CheckCXXCompilerFlag)

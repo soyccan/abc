@@ -55,26 +55,17 @@ ABC_NAMESPACE_IMPL_START
 
 ***********************************************************************/
 static int Abc_CommandRev(Abc_Frame_t *pAbc, int argc, char **argv) {
-  Abc_Ntk_t *pNtk = Abc_FrameReadNtk(pAbc);
-
-  if (pNtk == NULL) {
-    Abc_Print(-1, "Empty network.\n");
-    return 1;
-  }
-
-  if (!Abc_NtkIsStrash(pNtk)) {
-    Abc_PrintErr(ABC_ERROR, "Network is not strash\n");
-    return 1;
-  }
-
   // set defaults
-  int fVerbose = 0, fSat = 0, fPlot = 0;
+  int fVerbose = 0, fSat = 0, fPlot = 0, fAig = 0;
   int c;
   Extra_UtilGetoptReset();
-  while ((c = Extra_UtilGetopt(argc, argv, "svph")) != EOF) {
+  while ((c = Extra_UtilGetopt(argc, argv, "savph")) != EOF) {
     switch (c) {
     case 's':
       fSat ^= 1;
+      break;
+    case 'a':
+      fAig ^= 1;
       break;
     case 'v':
       fVerbose ^= 1;
@@ -87,6 +78,18 @@ static int Abc_CommandRev(Abc_Frame_t *pAbc, int argc, char **argv) {
     default:
       goto usage;
     }
+  }
+
+  Abc_Ntk_t *pNtk = Abc_FrameReadNtk(pAbc);
+
+  if (pNtk == NULL) {
+    Abc_Print(-1, "Empty network.\n");
+    return 1;
+  }
+
+  if (!Abc_NtkIsStrash(pNtk)) {
+    Abc_PrintErr(ABC_ERROR, "Network is not strash\n");
+    return 1;
   }
 
   if (fPlot) {
@@ -102,11 +105,29 @@ static int Abc_CommandRev(Abc_Frame_t *pAbc, int argc, char **argv) {
   unsigned long addend[32];
   int ret;
   if (fSat) { // use SAT
-    ret = ExtractAddendSat(pNtk, addend, fVerbose);
+    ret = Rev_ExtractAddendSat(pNtk, addend, fVerbose);
+  } else if (fAig) { // use AIG structure
+    int i;
+    Abc_Obj_t *node;
+    Abc_NtkForEachPo(pNtk, node, i) {
+      node = Abc_ObjFanin0(node);
+      if (Abc_NodeIsExorType(node)) {
+        Abc_Obj_t *nodeS, *nodeT, *nodeE;
+        nodeS = Abc_NodeRecognizeMux(node, &nodeT, &nodeE);
+        debug("PO[%d]=%d S=%d,%d T=%d,%d E=%d,%d", i, node->Id,
+              Abc_ObjIsComplement(nodeS), Abc_ObjRegular(nodeS)->Id,
+              Abc_ObjIsComplement(nodeT), Abc_ObjRegular(nodeT)->Id,
+              Abc_ObjIsComplement(nodeE), Abc_ObjRegular(nodeE)->Id);
+        Abc_Obj_t* xorOp0 = nodeS;
+        Abc_Obj_t* xorOp1 = nodeT;
+      } else if (1) {
+        ;
+      }
+    }
   } else { // use BDD
     Rev_NtkAigBuildBddToPi(pNtk);
 
-    ret = ExtractAddendBdd(pNtk, addend);
+    ret = Rev_ExtractAddendBdd(pNtk, addend);
 
     DdManager *dd = pNtk->pManFunc;
 
@@ -153,19 +174,25 @@ static int Abc_CommandRev(Abc_Frame_t *pAbc, int argc, char **argv) {
     // Cudd_PrintDebug(gbm, dd, n, pr);
   }
 
-  Abc_Print(1, "Extracted addend: (%lu) ", addend[0]);
-  for (int i = 0; i < MAX_ADDER_SIZE / 64; i++) {
-    Abc_Print(1, "%lx ", addend[i]);
+  if (ret) {
+    Abc_Print(1, "Extracted addend: (%lu) ", addend[0]);
+    for (int i = 0; i < MAX_ADDER_SIZE / 64; i++) {
+      Abc_Print(1, "%lx ", addend[i]);
+    }
+    Abc_Print(1, "\n");
+  } else {
+    Abc_PrintErr(ABC_ERROR, "Extract addend failed\n");
   }
-  Abc_Print(1, "\n");
 
   return ret;
 
 usage:
-  Abc_Print(-2, "usage: rev [-svh]\n");
+  Abc_Print(-2, "usage: rev [-savph]\n");
   Abc_Print(-2, "\t         extract addend\n");
   Abc_Print(-2, "\t-s     : extract using SAT (default BDD) [default = %s]\n",
             fSat ? "yes" : "no");
+  Abc_Print(-2, "\t-a     : extract using AIG (default BDD) [default = %s]\n",
+            fAig ? "yes" : "no");
   Abc_Print(-2, "\t-v     : verbose [default = %s]\n", fVerbose ? "yes" : "no");
   Abc_Print(-2, "\t-p     : plot AIG & BDD [default = %s]\n",
             fPlot ? "yes" : "no");
