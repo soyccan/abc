@@ -36,7 +36,6 @@ ABC_NAMESPACE_IMPL_START
 ////////////////////////////////////////////////////////////////////////
 ///                        DECLARATIONS                              ///
 ////////////////////////////////////////////////////////////////////////
-#define MAX_ADDER_SIZE 2048
 
 ////////////////////////////////////////////////////////////////////////
 ///                     FUNCTION DEFINITIONS                         ///
@@ -80,8 +79,7 @@ int Rev_NtkAigBuildBddToPi(Abc_Ntk_t *pNtk) {
   DdManager *dd = Cudd_Init(nPi, 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
 
   // set the mapping of AIG primary inputs to the BDD variables
-  // Hop_Man_t *pMan = pNtk->pManFunc;
-  Abc_NtkObj(pNtk, 0)->pData = Cudd_ReadOne(dd);
+  Abc_AigConst1(pNtk)->pData = Cudd_ReadOne(dd);
   for (int i = 0; i < nPi; i++)
     Abc_NtkPi(pNtk, i)->pData = Cudd_bddIthVar(dd, i);
 
@@ -104,17 +102,12 @@ int Rev_NtkAigBuildBddToPi(Abc_Ntk_t *pNtk) {
     }
   }
 
-  Abc_NtkForEachPo(pNtk, pNode, i) {
-    pNode->pData =
-        Cudd_NotCond(Abc_ObjFanin0(pNode)->pData, Abc_ObjFaninC0(pNode));
-  }
+  Abc_NtkForEachPo(pNtk, pNode, i) Rev_AigNodeBuildBddToPi(dd, pNode);
 
   Abc_NtkForEachObj(pNtk, pNode, i) pNode->fMarkA = 0;
 
   // replace manager
-  // TODO: free the old manager
-  // Hop_ManStop((Hop_Man_t *)pNtk->pManFunc);
-  // Aig_ManStop(pNtk->pManFunc);
+  Abc_AigFree((Abc_Aig_t *)pNtk->pManFunc);
   pNtk->pManFunc = dd;
 
   // update the network type
@@ -137,17 +130,13 @@ void Rev_AigNodeBuildBddToPi(DdManager *dd, Abc_Obj_t *node) {
   // record that bdd is built
   node->fMarkA = 1;
 
-  // Hop_Obj_t *hNode = Hop_Regular(node->pData);
-  // int comp = Hop_IsComplement(node->pData);
-
   // check the case of a constant
-  // TODO
-  // if (Hop_ObjIsConst1(hNode)) {
-  //   node->pData = Cudd_NotCond(Cudd_ReadOne(dd), comp);
-  //   return;
-  // }
+  if (Abc_AigNodeIsConst(node)) {
+    node->pData = Cudd_NotCond(Cudd_ReadOne(dd), Abc_ObjIsComplement(node));
+    return;
+  }
 
-  if (!Abc_ObjIsNode(node))
+  if (!Abc_ObjIsNode(node) && !Abc_ObjIsPo(node))
     return;
 
   if (Abc_ObjFaninNum(node) == 2) {
@@ -168,8 +157,8 @@ void Rev_AigNodeBuildBddToPi(DdManager *dd, Abc_Obj_t *node) {
 }
 
 // determine PO-PI pair by BDD, and derive next carry
-static int match_sum(DdManager *dd, DdNode *po, DdNode *pi, DdNode *carry,
-                     DdNode **nxt_carry) {
+static int pairPoPiBdd(DdManager *dd, DdNode *po, DdNode *pi, DdNode *carry,
+                       DdNode **nxt_carry) {
   DdNode *tmp = Cudd_bddXor(dd, pi, carry);
   cuddRef(tmp);
   DdNode *cond1 = Cudd_bddXnor(dd, po, tmp);
@@ -195,6 +184,77 @@ static int match_sum(DdManager *dd, DdNode *po, DdNode *pi, DdNode *carry,
   return ret;
 }
 
+// determine PO-PI pair by SAT, and derive next carry
+static int pairPoPiSat(sat_solver *pSat, Vec_Int_t *assumps, int po, int pi,
+                       int carry, int *nxtCarry, int fVerbose) {
+
+  // assert PO[i] ^ PI[i] ^ carry[i]
+  // if UNSAT => PO[i] == PI[i] ^ carry[i]
+  //
+  // assert !(PO[i] ^ PI[i] ^ carry[i])
+  // if UNSAT => PO[i] == PI[i] ~^ carry[i]
+
+  int tmp = sat_solver_nvars(pSat);
+  sat_solver_add_xor(pSat, tmp, pi, carry, 0);
+  int tmp2 = sat_solver_nvars(pSat);
+  sat_solver_add_xor(pSat, tmp2, tmp, po, 0);
+
+  // sat_solver_add_const(pSat, tmpVar2, 0);
+  // printf("#clause=%d\n", sat_solver_nclauses(pSat));
+
+  abctime clk;
+  lbool status;
+  int sat_cnt = 0;
+  for (int neg = 0; neg <= 1; neg++) {
+    Vec_IntClear(assumps);
+    Vec_IntPush(assumps, toLitCond(tmp2, neg));
+    // Vec_IntPush(vVars,
+    // toLitCond((int)(ABC_PTRINT_T)Abc_ObjRegular(pofi)->pCopy,
+    //                              Abc_ObjIsComplement(pofi)));
+    // ret =
+    //     sat_solver_addclause(pSat, vVars->pArray, vVars->pArray +
+    //     vVars->nSize);
+    // assert(ret);
+
+    // solve the miter
+    clk = Abc_Clock();
+    status = sat_solver_solve(pSat, Vec_IntArray(assumps),
+                              Vec_IntLimit(assumps), 0, 0, 0, 0);
+    if (status == l_Undef) {
+      Abc_PrintErr(ABC_ERROR, "The problem timed out.\n");
+      return -1;
+    } else if (status == l_True) {
+      // SAT
+      sat_cnt++;
+    } else if (status == l_False) {
+      // UNSAT
+      if (!neg) {
+        // PO[i] == PI[i] ^ carry[i]
+        // carry[i+1] = PI[i] & carry[i]
+        int var = sat_solver_nvars(pSat);
+        sat_solver_add_and(pSat, var, pi, carry, 0, 0, 0);
+        *nxtCarry = var;
+        return 0;
+      } else {
+        // PO[i] == PI[i] ~^ carry[i]
+        // carry[i+1] = PI[i] | carry[i]
+        int var = sat_solver_nvars(pSat);
+        sat_solver_add_and(pSat, var, pi, carry, 1, 1, 1);
+        *nxtCarry = var;
+        return 1;
+      }
+    } else {
+      assert(0);
+    }
+    if (fVerbose) {
+      ABC_PRT("solver time", Abc_Clock() - clk);
+      printf("The number of conflicts = %d.\n", (int)pSat->stats.conflicts);
+    }
+  }
+  // ASat_SolverWriteDimacs( pSat, "temp_sat.cnf", NULL, NULL, 1 );
+  return -1;
+}
+
 // for i = 0..n-1
 //   if PO[i] == PI[i] ^ c[i]
 //     res[i] = 0
@@ -207,7 +267,10 @@ int ExtractAddendBdd(Abc_Ntk_t *ntk, unsigned long *addend) {
 
   int adder_size = Abc_NtkPiNum(ntk);
   int arr[MAX_ADDER_SIZE] = {0};
-  assert(adder_size <= MAX_ADDER_SIZE);
+  if (adder_size > MAX_ADDER_SIZE) {
+    Abc_PrintErr(ABC_ERROR, "Adder size too large\n");
+    return 0;
+  }
 
   DdNode *carry = Cudd_ReadLogicZero(dd);
   for (int i = 0, j, k; i < adder_size; i++) {
@@ -221,8 +284,8 @@ int ExtractAddendBdd(Abc_Ntk_t *ntk, unsigned long *addend) {
         if (pi->fMarkA)
           continue;
         DdNode *nxt_carry = NULL;
-        bit = match_sum(dd, (DdNode *)po->pData, (DdNode *)pi->pData, carry,
-                        &nxt_carry);
+        bit = pairPoPiBdd(dd, (DdNode *)po->pData, (DdNode *)pi->pData, carry,
+                          &nxt_carry);
         if (bit != -1) {
           debug("i=%d po=%d pi=%d match %d", i, j, k, bit);
           arr[i] = bit;
@@ -259,9 +322,9 @@ int ExtractAddendBdd(Abc_Ntk_t *ntk, unsigned long *addend) {
   for (int j = 0; j < MAX_ADDER_SIZE / 64; j++) {
     unsigned long ret = 0;
     for (int i = 64 * (j + 1) - 1; i >= 64 * j; i--) {
-      ret = (ret << 1) | arr[i];
+      ret = (ret << 1) | (i >= remain ? arr[i - remain] : 0);
     }
-    addend[j] = ret << remain;
+    addend[j] = ret;
   }
 
   return 1;
@@ -282,122 +345,88 @@ int ExtractAddendSat(Abc_Ntk_t *pNtk, unsigned long *addend, int fVerbose) {
   ret = Abc_NtkMiterSatCreateInt(pSat, pNtk);
   assert(ret);
   // debug("solver #var=%d", sat_solver_nvars(pSat));
-
-  Abc_Obj_t *pNode;
-  int i;
-  Abc_NtkForEachObj(pNtk, pNode, i) pNode->fMarkA = 0;
-
-  // tmp array for adding clause
-  // TODO: size?
-  // Vec_Int_t *vVars = Vec_IntAlloc(100);
-  // assumptions for incremental SAT
-  Vec_Int_t *assumps = Vec_IntAlloc(100);
+  {
+    // clear mark set by Abc_NtkMiterSatCreateInt
+    Abc_Obj_t *pNode;
+    int i;
+    Abc_NtkForEachObj(pNtk, pNode, i) pNode->fMarkA = 0;
+  }
 
   int addend_vec[MAX_ADDER_SIZE] = {0};
-  assert(Abc_NtkPiNum(pNtk) <= MAX_ADDER_SIZE);
+  int adder_size = Abc_NtkPiNum(pNtk);
+  if (adder_size > MAX_ADDER_SIZE) {
+    Abc_PrintErr(ABC_ERROR, "Adder size too large\n");
+    return 0;
+  }
+
+  // assumptions for incremental SAT
+  Vec_Int_t *assumps = Vec_IntAlloc(100);
 
   // new var carry
   int carryVar = sat_solver_nvars(pSat);
   // let carry = CONST_0 = !CONST_1 = !(var 0)
   sat_solver_add_buffer(pSat, 0, carryVar, 1);
 
-  Abc_Obj_t *pi;
-  abctime clk;
-  lbool status;
-  Abc_NtkForEachPi(pNtk, pi, i) {
-    // clk = Abc_Clock();
-    // status = sat_solver_simplify(pSat);
-    // printf("Simplified the problem to %d variables and %d clauses. ",
-    //        sat_solver_nvars(pSat), sat_solver_nclauses(pSat));
-    // ABC_PRT("Time", Abc_Clock() - clk);
-    // if (status == 0) {
-    //   sat_solver_delete(pSat);
-    //   printf("The problem is UNSATISFIABLE after simplification.\n");
-    //   return 1;
-    // }
-
-    // assert PO[i] ^ PI[i] ^ carry[i]
-    // if UNSAT => PO[i] == PI[i] ^ carry[i]
-    // assert !(PO[i] ^ PI[i] ^ carry[i])
-    // if UNSAT => PO[i] == PI[i] ~^ carry[i]
-    Abc_Obj_t *po = Abc_NtkCo(pNtk, i);
-    int poVar = (int)(ABC_PTRINT_T)po->pCopy;
-    int piVar = (int)(ABC_PTRINT_T)pi->pCopy;
-
-    int tmpVar = sat_solver_nvars(pSat);
-    sat_solver_add_xor(pSat, tmpVar, piVar, carryVar, 0);
-    int tmpVar2 = sat_solver_nvars(pSat);
-    sat_solver_add_xor(pSat, tmpVar2, tmpVar, poVar, 0);
-
-    // sat_solver_add_const(pSat, tmpVar2, 0);
-    // printf("#clause=%d\n", sat_solver_nclauses(pSat));
-
-    int sat_cnt = 0;
-    for (int neg = 0; neg <= 1; neg++) {
-      Vec_IntClear(assumps);
-      Vec_IntPush(assumps, toLitCond(tmpVar2, neg));
-      // Vec_IntPush(vVars,
-      // toLitCond((int)(ABC_PTRINT_T)Abc_ObjRegular(pofi)->pCopy,
-      //                              Abc_ObjIsComplement(pofi)));
-      // ret =
-      //     sat_solver_addclause(pSat, vVars->pArray, vVars->pArray +
-      //     vVars->nSize);
-      // assert(ret);
-
-      // solve the miter
-      ABC_INT64_T nConfLimit = 100000;
-      ABC_INT64_T nInsLimit = 100000;
-      ABC_INT64_T numConfs = 0;
-      ABC_INT64_T numInspects = 0;
-      clk = Abc_Clock();
-      status =
-          sat_solver_solve(pSat, Vec_IntArray(assumps), Vec_IntLimit(assumps),
-                           nConfLimit, nInsLimit, 0, 0);
-      if (status == l_Undef) {
-        Abc_PrintErr(ABC_ERROR, "The problem timed out.\n");
-        goto error;
-      } else if (status == l_True) {
-        // SAT
-        sat_cnt++;
-      } else if (status == l_False) {
-        // UNSAT
-        if (!neg) {
-          // PO[i] == PI[i] ^ carry[i]
-          // carry[i+1] = PI[i] & carry[i]
-          addend_vec[i] = 0;
-          int var = sat_solver_nvars(pSat);
-          sat_solver_add_and(pSat, var, piVar, carryVar, 0, 0, 0);
-          carryVar = var;
-        } else {
-          // PO[i] == PI[i] ~^ carry[i]
-          // carry[i+1] = PI[i] | carry[i]
-          addend_vec[i] = 1;
-          int var = sat_solver_nvars(pSat);
-          sat_solver_add_and(pSat, var, piVar, carryVar, 1, 1, 1);
-          carryVar = var;
+  for (int i = 0, j, k; i < adder_size; i++) {
+    Abc_Obj_t *po = NULL, *pi = NULL;
+    // Abc_NtkForEachCo(pNtk, po, j) {
+    Abc_NtkForEachPo(pNtk, po, j) {
+      if (po->fMarkA)
+        continue;
+      int bit = -1;
+      Abc_NtkForEachPi(pNtk, pi, k) {
+        if (pi->fMarkA)
+          continue;
+        // clk = Abc_Clock();
+        // status = sat_solver_simplify(pSat);
+        // printf("Simplified the problem to %d variables and %d clauses. ",
+        //        sat_solver_nvars(pSat), sat_solver_nclauses(pSat));
+        // ABC_PRT("Time", Abc_Clock() - clk);
+        // if (status == 0) {
+        //   sat_solver_delete(pSat);
+        //   printf("The problem is UNSATISFIABLE after simplification.\n");
+        //   return 1;
+        // }
+        int nxtCarryVar = -1;
+        bit = pairPoPiSat(pSat, assumps, (int)(ABC_PTRINT_T)po->pCopy,
+                          (int)(ABC_PTRINT_T)pi->pCopy, carryVar, &nxtCarryVar,
+                          fVerbose);
+        if (bit != -1) {
+          debug("i=%d po=%d pi=%d match %d", i, j, k, bit);
+          addend_vec[i] = bit;
+          carryVar = nxtCarryVar;
+          po->fMarkA = 1;
+          pi->fMarkA = 1;
+          break;
         }
-      } else {
-        assert(0);
       }
-      if (fVerbose) {
-        ABC_PRT("solver time", Abc_Clock() - clk);
-        printf("The number of conflicts = %d.\n", (int)pSat->stats.conflicts);
-      }
-
-      if (sat_cnt >= 2) {
-        // invalid constant adder circuit
-        assert(0);
-        return 0;
-      }
+      if (bit != -1)
+        break;
     }
+  }
 
-    //    ASat_SolverWriteDimacs( pSat, "temp_sat.cnf", NULL, NULL, 1 );
+  // # of PO-PI pairs left unpaired
+  int remain = 0;
+  {
+    int i;
+    Abc_Obj_t *node;
+    Abc_NtkForEachPi(pNtk, node, i) {
+      if (!node->fMarkA)
+        remain++;
+      node->fMarkA = 0;
+    }
+    Abc_NtkForEachPo(pNtk, node, i) {
+      if (!node->fMarkA)
+        assert(Cudd_Regular((DdNode *)node->pData) ==
+               Cudd_Regular((DdNode *)Abc_ObjFanin0(node)->pData));
+      node->fMarkA = 0;
+    }
   }
 
   for (int j = 0; j < MAX_ADDER_SIZE / 64; j++) {
     unsigned long ret = 0;
     for (int i = 64 * (j + 1) - 1; i >= 64 * j; i--) {
-      ret = (ret << 1) | addend_vec[i];
+      ret = (ret << 1) | (i >= remain ? addend_vec[i - remain] : 0);
     }
     addend[j] = ret;
   }

@@ -46,6 +46,7 @@ ABC_NAMESPACE_HEADER_START
 ////////////////////////////////////////////////////////////////////////
 ///                      MACRO DEFINITIONS                           ///
 ////////////////////////////////////////////////////////////////////////
+#define MAX_ADDER_SIZE 2048
 
 #define _debug(fmt, ...) fprintf(stderr, fmt, ##__VA_ARGS__)
 #define debug(fmt, ...) _debug(fmt "\n", ##__VA_ARGS__)
@@ -64,7 +65,7 @@ int ExtractAddendSat(Abc_Ntk_t *ntk, unsigned long *addend, int fVerbose);
 ////////////////////////////////////////////////////////////////////////
 
 // debug function
-static int printBddCubes(DdManager *dd, DdNode *func) {
+static void printBddCubes(DdManager *dd, DdNode *func) {
   DdGen *gen;
   int *cube;
   CUDD_VALUE_TYPE value;

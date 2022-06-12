@@ -68,16 +68,19 @@ static int Abc_CommandRev(Abc_Frame_t *pAbc, int argc, char **argv) {
   }
 
   // set defaults
-  int fVerbose = 0, fSat = 0;
+  int fVerbose = 0, fSat = 0, fPlot = 0;
   int c;
   Extra_UtilGetoptReset();
-  while ((c = Extra_UtilGetopt(argc, argv, "svh")) != EOF) {
+  while ((c = Extra_UtilGetopt(argc, argv, "svph")) != EOF) {
     switch (c) {
     case 's':
       fSat ^= 1;
       break;
     case 'v':
       fVerbose ^= 1;
+      break;
+    case 'p':
+      fPlot ^= 1;
       break;
     case 'h':
       goto usage;
@@ -86,9 +89,11 @@ static int Abc_CommandRev(Abc_Frame_t *pAbc, int argc, char **argv) {
     }
   }
 
-  if (fVerbose) {
+  if (fPlot) {
     Abc_NtkShow(pNtk, 0, 0, 0);
+  }
 
+  if (fVerbose) {
     Abc_Obj_t *pObj;
     int i;
     Abc_NtkForEachObj(pNtk, pObj, i) { Abc_ObjPrint(stderr, pObj); }
@@ -148,22 +153,22 @@ static int Abc_CommandRev(Abc_Frame_t *pAbc, int argc, char **argv) {
     // Cudd_PrintDebug(gbm, dd, n, pr);
   }
 
-  assert(ret);
   Abc_Print(1, "Extracted addend: (%lu) ", addend[0]);
-  for (int i = 0; i < 32; i++) {
+  for (int i = 0; i < MAX_ADDER_SIZE / 64; i++) {
     Abc_Print(1, "%lx ", addend[i]);
   }
   Abc_Print(1, "\n");
 
-  return 0;
+  return ret;
 
 usage:
   Abc_Print(-2, "usage: rev [-svh]\n");
   Abc_Print(-2, "\t         extract addend\n");
   Abc_Print(-2, "\t-s     : extract using SAT (default BDD) [default = %s]\n",
             fSat ? "yes" : "no");
-  Abc_Print(-2, "\t-v     : print BDD of each PO [default = %s]\n",
-            fVerbose ? "yes" : "no");
+  Abc_Print(-2, "\t-v     : verbose [default = %s]\n", fVerbose ? "yes" : "no");
+  Abc_Print(-2, "\t-p     : plot AIG & BDD [default = %s]\n",
+            fPlot ? "yes" : "no");
   Abc_Print(-2, "\t-h     : print the command usage\n");
   return 1;
 }
